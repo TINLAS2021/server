@@ -6,80 +6,88 @@ broker = "185.224.91.138"
 port = 1883
 topic_input = "bigSnake/input/"
 topic_output = "bigSnake/output/"
-client_count = 11
-client_data = [0] * client_count
-clients = []
+class SnakeNode:
 
+    def __init__(self, id):
+        self.id = id
+        self.client = self.create_client(id)
+        self.client_data = 0
+    
+    def connect_mqtt(self, client_id) -> mqtt_client:
+        def on_connect(client, userdata, flags, rc):
+            print(client_id + " connected to Broker." if rc == 0 else "Failed to connect")
 
-def connect_mqtt(client_id) -> mqtt_client:
-    def on_connect(client, userdata, flags, rc):
-        if rc == 0:
-            print(client_id + " connected to Broker.")
-        else:
-            print("Failed to connect, return code %d\n", rc)
+        client = mqtt_client.Client(client_id)
+        client.on_connect = on_connect
+        client.connect(broker, port)
+        return client 
+    
+    def subscribe(self, client: mqtt_client):
+        def on_message(client, userdata, message):
+            self.client_data = int(message.payload.decode())
+            print("Received " + str(self.client_data) + " from " + message.topic)
+            
+        client.subscribe(topic_output + str(self.id))
+        client.on_message = on_message
+    
+    def create_client(self, client_id):
+        client = self.connect_mqtt(f'{client_id}')
+        self.subscribe(client)
+        client.loop_start()
+        return client
+    
+    def move(self, val):
+        self.client.publish(topic_input + str(self.id), str(val))
+    
+    def reset(self):
+        # print("Resetting snake_node " + str(self.id))
+        self.move(0)
 
-    client = mqtt_client.Client(client_id)
-    # client.username_pw_set(username, password)
-    client.on_connect = on_connect
-    client.connect(broker, port)
-    return client
+class Snake:
 
+    def __init__(self, size):
+        self.size = size
+        self.snake_nodes = self.create_snake(size)
+    
+    def create_snake(self, size):
+        return [SnakeNode(i) for i in range(size)]
+    
+    def loop(self):
+        for snake_node in self.snake_nodes:
+            snake_node.client.loop()
+    
+    def reset_all(self):
+        for snake_node in self.snake_nodes:
+            snake_node.reset()
+        sleep(3)
+    
+    def form_u_letter(self):
+        for snake_node in self.snake_nodes:
+            if snake_node.id % 2 == 0:
+                snake_node.move(250)
+        sleep(3)
 
-def subscribe(client: mqtt_client, client_id):
-    def on_message(client, userdata, msg):
-        client_data[client_id] = int(msg.payload.decode())
-        print('Received ' + str(client_data[int(client_id)]) + ' from ' + msg.topic)
+    def form_u_letter_inverse(self):
+        for snake_node in self.snake_nodes:
+            if snake_node.id % 2 == 0:
+                snake_node.move(-250)
+        sleep(3)
 
-    client.subscribe(topic_output + str(client_id))
-    client.on_message = on_message
-
-
-def create_clients(amount):
-    for client in range(amount):
-        temp_client = connect_mqtt(f'{client}')
-        subscribe(temp_client, client)
-        temp_client.loop_start()
-        clients.append(temp_client)
-
+    def slither(self):
+        for snake_node in self.snake_nodes:
+            snake_node.move(snake_node.client_data + random.randint(-100,100))
+        sleep(3)
 
 def run():
-    create_clients(client_count)
-    reset_all(clients)
-    sleep(3)
-    form_u_letter_inverse()
-    # while(True):
-    #     slither(clients)
+    snake = Snake(11)
+    snake.reset_all()
     while True:
-        for i in range(len(clients)):
-            clients[i].loop()
+        snake.loop()
+        sleep(1)
 
-def move(client_id, val):
-    clients[client_id].publish(topic_input + str(client_id), str(val))
-    sleep(0.1)
-
-def reset(client_id):
-    print("Resetting node " + str(client_id))
-    move(client_id, 0)
-
-def reset_all(clients_list):
-    for i in range(len(clients_list)):
-        reset(i)
-
-def form_u_letter(clients_list):
-    for i in range(len(clients_list)):
-        if i % 2 == 0:
-            move(i, 250)
-
-def form_u_letter_inverse(clients_list):
-    for i in range(len(clients_list)):
-        if i % 2 == 0:
-            move(i, -250)
-
-def slither(clients_list):
-    for i in range(len(clients_list)):
-        move(i, client_data[i] + random.randint(-100,100))
-
-
+    # snake.form_u_letter()
+    # snake.reset_all()
+    # snake.form_u_letter_inverse()
 
 if __name__ == '__main__':
     run()
